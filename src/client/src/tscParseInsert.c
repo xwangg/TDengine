@@ -24,8 +24,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <endian.h>
-#include <netinet/in.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -34,11 +32,10 @@
 #include <math.h>
 #include <string.h>
 #include <time.h>
-#include <unistd.h>
 #include <wchar.h>
-#include <wordexp.h>
 
 #include "ihash.h"
+#include "os.h"
 #include "tscSecondaryMerge.h"
 #include "tscUtil.h"
 #include "tschemautil.h"
@@ -634,6 +631,7 @@ static int32_t tscParseSqlForCreateTableOnDemand(char** sqlstr, SSqlObj* pSql) {
     /* create table if not exists */
     sql = tscGetToken(sql, &id, &idlen);
     STagData* pTag = (STagData*)pCmd->payload;
+    memset(pTag, 0, sizeof(STagData));
 
     SSQLToken token1 = {idlen, TK_ID, id};
     setMeterID(pSql, &token1);
@@ -724,6 +722,16 @@ static int32_t tscParseSqlForCreateTableOnDemand(char** sqlstr, SSqlObj* pSql) {
   return code;
 }
 
+int validateTableName(char* tblName, int len) {
+  char buf[TSDB_METER_ID_LEN] = {0};
+  memcpy(buf, tblName, len);
+
+  SSQLToken token = {len, TK_ID, buf};
+  tSQLGetToken(buf, &token.type);
+
+  return tscValidateName(&token);
+}
+
 /**
  * usage: insert into table1 values() () table2 values()()
  *
@@ -772,6 +780,16 @@ int tsParseInsertStatement(SSqlCmd* pCmd, char* str, char* acct, char* db, SSqlO
         code = TSDB_CODE_INVALID_SQL;
         goto _error_clean;
       }
+    }
+
+    /*
+     * Check the validity of the table name
+     *
+     */
+    if (validateTableName(id, idlen) != TSDB_CODE_SUCCESS) {
+      code = TSDB_CODE_INVALID_SQL;
+      sprintf(pCmd->payload, "table name is invalid");
+      goto _error_clean;
     }
 
     SSQLToken token = {idlen, TK_ID, id};
